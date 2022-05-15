@@ -1,0 +1,290 @@
+Option Explicit
+Sub resal()
+
+' Dim Variables
+Dim F As Single, z1 As Single, dzdt1 As Single
+Dim T As Single, Tprint As Single, X As Single
+Dim V As Single, N As Single, P As Single
+Dim Volume As Single
+Dim dFdttemp As Single, Qtemp As Single, Rhotemp As Single, dPdttemp
+Dim KF0 As Single, KV0 As Single, KX0 As Single, KN0 As Single, KP0 As Single
+Dim KF1 As Single, KV1 As Single, KX1 As Single, KN1 As Single, KP1 As Single
+Dim KF2 As Single, KV2 As Single, KX2 As Single, KN2 As Single, KP2 As Single
+Dim KF3 As Single, KV3 As Single, KX3 As Single, KN3 As Single, KP3 As Single
+
+' Dim Parameters
+Dim P0 As Single, R As Single
+Dim D As Single, Lamda As Single, PropDensity As Single, F0 As Single
+Dim Covolume As Single, Gamma As Single, Force As Single, Cv As Single, nn As Single
+Dim n1 As Single, nR As Single
+Dim Beta As Single, Alpha As Single
+Dim W As Single, C As Single, PStart As Single, fixResist As Single, varResist As Single, Vol0 As Single, Vol1 As Single
+Dim Bore As Single, Area As Single, LEquiv As Single
+Dim LBarrel As Single, Arealeakfract As Single, Arealeak As Single
+Dim DeltaT As Single, DeltaTPrint As Single, Lineprint As Integer
+
+' Input Parameters
+    ' General Parameters
+  P0 = 101324.6                       ' Atmospheric Pressure, N/M2
+  R = 8.31696                        ' Universal Gas Constant, J/mole-degK
+    ' Propellant Physical Parameters
+  D = Sheets("Main").Cells(4, 2).Value                  ' Ballistic Size, M
+  Lamda = Sheets("Main").Cells(5, 2).Value              ' Form Function Theta
+  F0 = 0                                                'Thickness Fraction at all burn
+  PropDensity = Sheets("Main").Cells(6, 2).Value        ' Propellant Density, Kg/M3
+    ' Propellant Thermodynamic Parameters
+  Covolume = Sheets("Main").Cells(8, 2).Value           ' Covolume, M3/Kg
+  Gamma = Sheets("Main").Cells(9, 2).Value              ' Specific Heat Ratio
+  Force = Sheets("Main").Cells(10, 2).Value             ' Force J/Kg
+  n1 = Sheets("Main").Cells(11, 2).Value                ' Moles per Unit Mass of Gas, Moles/Kg
+  nR = n1 * R
+  Cv = R * n1 / (Gamma - 1)                             ' Heat capacity of gas, J/Kg-degK
+    ' Propellant burning rate Parameters
+  Beta = Sheets("Main").Cells(13, 2).Value              ' Burning Rate Constant, SI
+  Alpha = Sheets("Main").Cells(14, 2).Value             ' Pressure Exponent
+    ' Loading Parameters
+  W = Sheets("Main").Cells(16, 2).Value                 ' Shot Mass, Kg
+  C = Sheets("Main").Cells(17, 2).Value                 ' Charge Mass, Kg
+  PStart = Sheets("Main").Cells(18, 2).Value            ' Shot Start Pressure, N/M2
+  fixResist = Sheets("Main").Cells(19, 2).Value         ' fixed resistance, N
+  varResist = Sheets("Main").Cells(20, 2).Value         ' pressure variable resistance, N/(N/M2)
+    ' Gun Parameters
+  Vol0 = Sheets("Main").Cells(22, 2).Value              ' Initial Free Volume of charge Case, M3
+  Vol1 = Sheets("Main").Cells(23, 2).Value              ' Additional Initial Free Volume after burst of charge case, M3
+  Bore = Sheets("Main").Cells(24, 2).Value              ' Bore Diameter, M
+  Area = 0.25 * 3.141592654 * (Bore) ^ 2                ' Bore Area, M2
+  LEquiv = (Vol0 + Vol1) / Area                         ' Equivalent Length of Free Volume, M
+  LBarrel = Sheets("Main").Cells(25, 2).Value           ' Barrel Length, M
+  Arealeakfract = Sheets("Main").Cells(26, 2).Value     'Leak Area as Fraction of Bore Area
+  Arealeak = Arealeakfract * Area   ' Leak Area, M2
+    ' Calculation Time Parameters
+  DeltaT = Sheets("Main").Cells(28, 2).Value            ' Calculation Time Increment, Sec
+  DeltaTPrint = Sheets("Main").Cells(29, 2).Value       ' Print Time Step, Sec
+
+  ' Set Initial Values
+
+  F = 1                             ' Fraction of Ballistic Size remaining
+  z1 = 0                            ' Mass Fraction Burnt
+  T = 0                             ' Time, Sec
+  Tprint = 0                        ' Print Time, Sec
+  Lineprint = 1                     ' Line printed
+  X = 0                             ' Shot Travel Distance, M
+  V = 0                             ' Shot Velocity, M/Sec
+  N = 1E-05                         ' Gas Mass in gun as Fraction of Charge Weight
+  P = P0                            ' Pressure, N/M2
+
+Application.Calculation = xlCalculationManual
+Application.ScreenUpdating = False
+Sheets("Results").Cells.Clear
+Sheets("Results").Cells(1, 1).Value = "T, msec"
+Sheets("Results").Cells(1, 2).Value = "F"
+Sheets("Results").Cells(1, 3).Value = "z"
+Sheets("Results").Cells(1, 4).Value = "V, ft/sec"
+Sheets("Results").Cells(1, 5).Value = "X, mm"
+Sheets("Results").Cells(1, 6).Value = "N"
+Sheets("Results").Cells(1, 7).Value = "P, psi"
+Sheets("Results").Cells(1, 8).Value = "PStart, psi"
+
+
+ ' Start Calculations
+
+
+
+ ' Runga Kutta Routine
+ Do While (X <= LBarrel)
+ If X = 0 And P <= PStart Then
+ Volume = Vol0
+ End If
+ If X = 0 And P > PStart Then
+ Volume = Vol0 + Vol1
+ End If
+ If X > 0 Then
+ Volume = Vol0 + Vol1 + Area * X
+ End If
+    dFdttemp = dFdt(D, Beta, Alpha, P, F, F0)
+ KF0 = DeltaT * dFdttemp
+    z1 = z(F, Lamda)
+    dzdt1 = dzdt(F, Lamda, dFdttemp, z1)
+ KV0 = DeltaT * dvdt(W, P - P0, Area, fixResist, varResist)
+ KX0 = DeltaT * V
+    Rhotemp = Rho(C, N, Volume, z1, PropDensity)
+    Qtemp = Q(Gamma, P, Arealeak, Rhotemp, Volume, Covolume)
+ KN0 = DeltaT * (dzdt1 - Qtemp / C)
+    dPdttemp = dPdt(Area, P, Volume, Covolume, V, R, Cv, n1, C, Force, dzdt1, Gamma, Rhotemp, N, Qtemp)
+ KP0 = DeltaT * dPdttemp
+
+ If X + 0.5 * KX0 = 0 And P + 0.5 * KP0 <= PStart Then
+ Volume = Vol0
+ End If
+ If X + 0.5 * KX0 = 0 And P + 0.5 * KP0 > PStart Then
+ Volume = Vol0 + Vol1
+ End If
+ If X + 0.5 * KX0 > 0 Then
+ Volume = Vol0 + Vol1 + Area * (X + 0.5 * KX0)
+ End If
+     dFdttemp = dFdt(D, Beta, Alpha, P + 0.5 * KP0, F + 0.5 * KF0, F0)
+ KF1 = DeltaT * dFdttemp
+     z1 = z(F + 0.5 * KF0, Lamda)
+    dzdt1 = dzdt(F + 0.5 * KF0, Lamda, dFdttemp, z1)
+ KV1 = DeltaT * dvdt(W, P + 0.5 * KP0 - P0, Area, fixResist, varResist)
+ KX1 = DeltaT * (V + 0.5 * KV0)
+    Rhotemp = Rho(C, N + 0.5 * KN0, Volume, z1, PropDensity)
+    Qtemp = Q(Gamma, P + 0.5 * KP0, Arealeak, Rhotemp, Volume, Covolume)
+ KN1 = DeltaT * (dzdt1 - Qtemp / C)
+    dPdttemp = dPdt(Area, P + 0.5 * KP0, Volume, Covolume, V + 0.5 * KV0, R, Cv, n1, C, Force, dzdt1, Gamma, Rhotemp, N + 0.5 * KN0, Qtemp)
+ KP1 = DeltaT * dPdttemp
+
+ If X + 0.5 * KX1 = 0 And P + 0.5 * KP1 <= PStart Then
+ Volume = Vol0
+ End If
+ If X + 0.5 * KX1 = 0 And P + 0.5 * KP1 > PStart Then
+ Volume = Vol0 + Vol1
+ End If
+ If X + 0.5 * KX1 > 0 Then
+ Volume = Vol0 + Vol1 + Area * (X + 0.5 * KX1)
+ End If
+      dFdttemp = dFdt(D, Beta, Alpha, P + 0.5 * KP1, F + 0.5 * KF1, F0)
+ KF2 = DeltaT * dFdttemp
+      z1 = z(F + 0.5 * KF1, Lamda)
+    dzdt1 = dzdt(F + 0.5 * KF1, Lamda, dFdttemp, z1)
+ KV2 = DeltaT * dvdt(W, P + 0.5 * KP1 - P0, Area, fixResist, varResist)
+ KX2 = DeltaT * (V + 0.5 * KV1)
+    Rhotemp = Rho(C, N + 0.5 * KN1, Volume, z1, PropDensity)
+    Qtemp = Q(Gamma, P + 0.5 * KP1, Arealeak, Rhotemp, Volume, Covolume)
+ KN2 = DeltaT * (dzdt1 - Qtemp / C)
+    dPdttemp = dPdt(Area, P + 0.5 * KP1, Volume, Covolume, V + 0.5 * KV1, R, Cv, n1, C, Force, dzdt1, Gamma, Rhotemp, N + 0.5 * KN1, Qtemp)
+ KP2 = DeltaT * dPdttemp
+
+
+  If X + KX2 = 0 And P + KP2 <= PStart Then
+  Volume = Vol0
+  End If
+ If X + KX2 = 0 And P + 0.5 * KP1 > PStart Then
+ Volume = Vol0 + Vol1
+ End If
+ If X + KX2 > 0 Then
+ Volume = Vol0 + Vol1 + Area * (X + KX2)
+ End If
+      dFdttemp = dFdt(D, Beta, Alpha, P + KP2, F + KF2, F0)
+ KF3 = DeltaT * dFdttemp
+          z1 = z(F + KF2, Lamda)
+    dzdt1 = dzdt(F + KF2, Lamda, dFdttemp, z1)
+ KV3 = DeltaT * dvdt(W, P + KP2 - P0, Area, fixResist, varResist)
+ KX3 = DeltaT * (V + KV2)
+    Rhotemp = Rho(C, N + KN2, Volume, z1, PropDensity)
+    Qtemp = Q(Gamma, P + KP2, Arealeak, Rhotemp, Volume, Covolume)
+ KN3 = DeltaT * (dzdt1 - Qtemp / C)
+    dPdttemp = dPdt(Area, P + KP2, Volume, Covolume, V + KV2, R, Cv, n1, C, Force, dzdt1, Gamma, Rhotemp, N + KN2, Qtemp)
+ KP3 = DeltaT * dPdttemp
+
+
+  F = F + (KF0 + 2 * KF1 + 2 * KF2 + KF3) / 6
+  V = V + (KV0 + 2 * KV1 + 2 * KV2 + KV3) / 6
+  X = X + (KX0 + 2 * KX1 + 2 * KX2 + KX3) / 6
+  N = N + (KN0 + 2 * KN1 + 2 * KN2 + KN3) / 6
+  P = P + (KP0 + 2 * KP1 + 2 * KP2 + KP3) / 6
+    dFdttemp = dFdt(D, Beta, Alpha, P, F, F0)
+    If dFdttemp = 0 Then
+    F = F0
+    End If
+    If N >= 1 Then
+    N = 1
+    End If
+    If P <= P0 Then
+    P = P0
+    End If
+    z1 = z(F, Lamda)
+    dzdt1 = dzdt(F, Lamda, dFdttemp, z1)
+
+
+  T = T + DeltaT
+
+  ' Write Calculated Values to Results Sheet
+  If T >= Tprint Then
+  Sheets("Results").Cells(1 + Lineprint, 1).Value = T * 1000
+  Sheets("Results").Cells(1 + Lineprint, 2).Value = F
+  Sheets("Results").Cells(1 + Lineprint, 3).Value = z1
+  Sheets("Results").Cells(1 + Lineprint, 4).Value = V / 0.3048
+  Sheets("Results").Cells(1 + Lineprint, 5).Value = X * 1000
+  Sheets("Results").Cells(1 + Lineprint, 6).Value = N
+  Sheets("Results").Cells(1 + Lineprint, 7).Value = P / 1000000 * 145
+  Sheets("Results").Cells(1 + Lineprint, 8).Value = PStart / 1000000 * 145
+  Sheets("Results").Cells(1 + Lineprint, 9).Value = Volume
+
+
+  Sheets("Results").Activate
+  Application.Calculation = xlCalculationAutomatic
+  Application.ScreenUpdating = True
+  Lineprint = Lineprint + 1
+  Tprint = Tprint + DeltaTPrint
+  End If
+
+  Loop
+
+'    Sheets("Results").Cells(1 + Lineprint, 1).Value = "T, msec"
+'    Sheets("Results").Cells(1 + Lineprint, 2).Value = "F"
+'    Sheets("Results").Cells(1 + Lineprint, 3).Value = "z"
+'    Sheets("Results").Cells(1 + Lineprint, 4).Value = "V, ft/sec"
+'    Sheets("Results").Cells(1 + Lineprint, 5).Value = "X, mm"
+'    Sheets("Results").Cells(1 + Lineprint, 6).Value = "N"
+'    Sheets("Results").Cells(1 + Lineprint, 7).Value = "P, psi"
+'    Sheets("Results").Cells(1 + Lineprint, 8).Value = "PStart, psi"
+
+End Sub
+
+' dFdt Function
+Function dFdt(dD As Single, dB As Single, dA As Single, dP As Single, dF, dF0) As Single
+  If dP < 0 Then
+  dP = 0
+  End If
+    dFdt = -(dB / dD * (dP) ^ dA)
+  If dF <= 0 Then
+  dFdt = 0
+  End If
+End Function
+' z function
+Function z(dF As Single, dL As Single) As Single
+
+z = 1 - dF ^ 3
+      If z < 0 Then
+      z = 0
+      End If
+  End Function
+' dzdt function
+Function dzdt(dF As Single, dL As Single, ddFdt As Single, dZ As Single) As Single
+ Dim Dout As Single, Din As Single, Length As Single, Nhole As Single, Dsize As Single
+Dim K As Single, K1 As Single, K2 As Single
+Dim BF1 As Single, BF2 As Single, BF3 As Single, BF4 As Single, BZ1 As Single, BZ2 As Single, BZ3 As Single, BZ4 As Single
+   'z = (1 - dF) * (1 + dL * dF)
+
+    dzdt = -3 * dF ^ 2 * (ddFdt)
+End Function
+' Gas Density Function
+Function Rho(dC As Single, dN As Single, dVol As Single, dZ As Single, dDenst As Single) As Single
+    Rho = 1.12 + ((dC * dN)) / (dVol - dC / dDenst * (1 - dZ))
+End Function
+' Gas Flow Function
+Function Q(dGam As Single, dP As Single, dAt As Single, dRho As Single, dVol As Single, dcovol As Single) As Single
+If dP > 0 Then
+Q = dP * dAt / Sqr(dP / dRho) * Sqr(dGam) * (2 / (dGam + 1)) ^ ((dGam + 1) / (2 * (dGam - 1)))
+End If
+If dP <= 0 Then
+Q = 0
+End If
+End Function
+' Eqn of Motion Function
+Function dvdt(dW As Single, dP As Single, dA As Single, dfixResist As Single, dvarResist As Single) As Single
+dvdt = (dA * dP - dfixResist - dvarResist * dP) / dW
+If dvdt < 0 Then
+dvdt = 0
+End If
+End Function
+' dPdt Function
+Function dPdt(Area As Single, P As Single, Vol As Single, Covol As Single, Vel As Single, R As Single, Cv As Single, n1 As Single, C As Single, Force As Single, dzdt As Single, Gamma As Single, Rho As Single, N As Single, Q As Single) As Single
+dPdt = (C * Force * dzdt / (Vol - Covol * C * N)) - (Gamma * P * Q / Rho / Vol) - P * Area * Vel * (Gamma) / (Vol - Covol * C * N)
+End Function
+
+
+Private Sub cmdex_Click()
+ End
+End Sub
